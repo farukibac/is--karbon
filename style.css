@@ -258,6 +258,17 @@ button:focus-visible {
   min-height: 22px;
 }
 
+#goalFeedback:empty,
+#historyMessage:empty {
+  display: none;
+}
+
+#message[data-error],
+#goalFeedback[data-error],
+#historyMessage[data-error] {
+  color: #ad303b;
+}
+
 /* =========================================
    SURDURULEBILIR ULASIM ONERISI
    ========================================= */
@@ -631,13 +642,15 @@ progress::-webkit-progress-value {
   font-size: 12px;
   font-weight: 700;
   color: var(--primary-dark);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .chart-bar {
   width: min(100%, 48px);
   background: var(--primary);
   border-radius: 8px 8px 0 0;
-  min-height: 2px;
 }
 
 .chart-day {

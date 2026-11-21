@@ -63,6 +63,7 @@ let trips = Array.isArray(storedTrips)
       Number.isFinite(trip.distance) &&
       trip.distance > 0 &&
       Number.isFinite(trip.emission) &&
+      trip.emission >= 0 &&
       typeof trip.createdAt === "string" &&
       !Number.isNaN(Date.parse(trip.createdAt))
     )
@@ -76,8 +77,18 @@ if (!Number.isInteger(weeklyGoal) ||
   weeklyGoal = null;
 }
 
-function saveTrips() {
-  return writeStorage(TRIPS_KEY, trips);
+function saveTrips(nextTrips) {
+  if (!writeStorage(TRIPS_KEY, nextTrips)) {
+    return false;
+  }
+
+  trips = nextTrips;
+  return true;
+}
+
+function showFeedback(element, message, isError = false) {
+  element.textContent = message;
+  element.toggleAttribute("data-error", isError);
 }
 
 // ==========================================
@@ -92,9 +103,7 @@ function dateKey(date) {
   return `${year}-${month}-${day}`;
 }
 
-function getWeekStart() {
-  const today = new Date();
-
+function getWeekStart(today) {
   const start = new Date(
     today.getFullYear(),
     today.getMonth(),
@@ -109,10 +118,7 @@ function getWeekStart() {
   return start;
 }
 
-function getWeeklyTrips() {
-  const start = getWeekStart();
-  const now = new Date();
-
+function getWeeklyTrips(start, now) {
   return trips.filter(trip => {
     const date = new Date(trip.createdAt);
     return date >= start && date <= now;
@@ -150,6 +156,9 @@ const tripForm = document.getElementById("tripForm");
 const transportInput = document.getElementById("transport");
 const distanceInput = document.getElementById("distance");
 const messageElement = document.getElementById("message");
+const historyMessage = document.getElementById("historyMessage");
+const weeklyChart = document.getElementById("weeklyChart");
+const chartSummary = document.getElementById("chartSummary");
 
 const todayElement = document.getElementById("todayEmission");
 const weekElement = document.getElementById("weeklyEmission");
@@ -174,6 +183,7 @@ const goalStatus =
 
 const goalProgress =
   document.getElementById("goalProgress");
+const goalFeedback = document.getElementById("goalFeedback");
 
 const compareTransport =
   document.getElementById("compareTransport");
@@ -233,14 +243,10 @@ transportInput.addEventListener(
 // ANA PANEL
 // ==========================================
 
-function updateDashboard() {
-  const today = dateKey(new Date());
-
+function updateDashboard(today, weeklyTrips) {
   const todayTrips = trips.filter(trip =>
     dateKey(new Date(trip.createdAt)) === today
   );
-
-  const weeklyTrips = getWeeklyTrips();
 
   const todayEmission = todayTrips.reduce(
     (total, trip) => total + trip.emission,
@@ -270,16 +276,14 @@ tripForm.addEventListener("submit", function(event) {
   event.preventDefault();
 
   const transport = transportInput.value;
-  const distance = Number(distanceInput.value);
+  const distance = distanceInput.valueAsNumber;
 
   if (
     !Object.hasOwn(factors, transport) ||
     !Number.isFinite(distance) ||
-    distance <= 0 ||
-    distance > 1000
+    !distanceInput.validity.valid
   ) {
-    messageElement.textContent =
-      "Lütfen 0 ile 1000 km arasında geçerli bir mesafe gir.";
+    showFeedback(messageElement, "0,1 ile 1000 km arasında, 0,1 km adımlı bir mesafe gir.", true);
 
     return;
   }
@@ -294,7 +298,11 @@ tripForm.addEventListener("submit", function(event) {
     switchCheckbox.checked;
 
   const trip = {
-    id: crypto.randomUUID(),
+    id: typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : Array.from(crypto.getRandomValues(new Uint8Array(16)), byte =>
+          byte.toString(16).padStart(2, "0")
+        ).join(""),
     transport: transport,
     distance: distance,
     emission: emission,
@@ -302,13 +310,14 @@ tripForm.addEventListener("submit", function(event) {
     createdAt: new Date().toISOString()
   };
 
-  trips.push(trip);
+  if (!saveTrips([...trips, trip])) {
+    showFeedback(messageElement, "Yolculuk tarayıcıya kaydedilemedi. Bilgilerin formda duruyor, tekrar deneyebilirsin.", true);
+    return;
+  }
 
-  const saved = saveTrips();
-
-  messageElement.textContent = saved
-    ? "Yolculuğun başarıyla kaydedildi."
-    : "Yolculuk eklendi ancak tarayıcıya kaydedilemedi.";
+  showFeedback(messageElement, "Yolculuğun başarıyla kaydedildi.");
+  showFeedback(historyMessage, "");
+  resetComparison();
 
   tripForm.reset();
   updateSwitchVisibility();
@@ -369,9 +378,14 @@ function renderTrips() {
     );
 
     deleteButton.addEventListener("click", () => {
-      trips = trips.filter(item => item.id !== trip.id);
+      const remainingTrips = trips.filter(item => item.id !== trip.id);
+      if (!saveTrips(remainingTrips)) {
+        showFeedback(historyMessage, "Yolculuk tarayıcıdan silinemedi. Kayıt geçmişinde duruyor.", true);
+        return;
+      }
 
-      saveTrips();
+      showFeedback(historyMessage, "Yolculuk silindi.");
+      resetComparison();
       refreshApp();
     });
 
@@ -398,17 +412,19 @@ function updateRecommendation() {
 
   const lastTrip = trips[trips.length - 1];
 
+  // Pratik mesafe varsayımları, rota değerlendirmesi değildir.
+  const activeDistanceLimits = { walk: 2, bike: 8 };
   const alternatives = Object.keys(factors)
     .filter(mode =>
-      mode !== lastTrip.transport &&
-      factors[mode] < factors[lastTrip.transport]
+      factors[mode] < factors[lastTrip.transport] &&
+      lastTrip.distance <= (activeDistanceLimits[mode] ?? Infinity)
     )
     .sort((a, b) => factors[b] - factors[a]);
 
   if (alternatives.length === 0) {
     recommendationText.textContent =
-      "Son yolculuğun için bu hesaplama kapsamında " +
-      "daha düşük işletim emisyonlu bir seçenek bulunmuyor.";
+      "Son yolculuğun için mesafe varsayımına uyan " +
+      "daha düşük emisyonlu bir seçenek bulunmuyor. Rota uygunluğu değerlendirilmedi.";
 
     potentialSaving.textContent = "";
     return;
@@ -430,10 +446,10 @@ function updateRecommendation() {
     `${transportNames[lastTrip.transport]} yerine ` +
     `${transportNames[preferred]} kullanırsan ` +
     "aynı mesafe varsayımıyla karbon emisyonunu " +
-    "azaltabilirsin.";
+    "azaltabilirsin. Bu öneri varsayımsaldır, rota uygunluğu doğrulanmamıştır.";
 
   potentialSaving.textContent =
-    `Tahmini tasarruf potansiyeli: ` +
+    `Alternatif senaryonun tahmini azaltım potansiyeli: ` +
     `${formatEmission(saving)} kg CO₂e`;
 
   // Burada gercek tasarruf kaydedilmiyor.
@@ -452,19 +468,22 @@ saveGoalButton.addEventListener("click", () => {
     goal < 1 ||
     goal > 30
   ) {
-    goalStatus.textContent =
-      "1 ile 30 arasında tam sayı gir.";
+    showFeedback(goalFeedback, "1 ile 30 arasında tam sayı gir.", true);
 
     return;
   }
 
-  weeklyGoal = goal;
-  writeStorage(GOAL_KEY, weeklyGoal);
+  if (!writeStorage(GOAL_KEY, goal)) {
+    showFeedback(goalFeedback, "Hedef tarayıcıya kaydedilemedi. Son kaydedilen hedef geçerli.", true);
+    return;
+  }
 
-  updateWeeklyGoal();
+  weeklyGoal = goal;
+  showFeedback(goalFeedback, "Haftalık hedef kaydedildi.");
+  refreshApp();
 });
 
-function updateWeeklyGoal() {
+function updateWeeklyGoal(weeklyTrips) {
   if (weeklyGoal === null) {
     goalStatus.textContent =
       "Henüz haftalık hedef belirlemedin.";
@@ -473,10 +492,8 @@ function updateWeeklyGoal() {
     return;
   }
 
-  weeklyGoalInput.value = weeklyGoal;
-
-  const switchedTrips = getWeeklyTrips()
-    .filter(trip => trip.replacedCar === true);
+  const switchedTrips = weeklyTrips
+    .filter(trip => trip.transport !== "car" && trip.replacedCar === true);
 
   const completed = switchedTrips.length;
 
@@ -501,7 +518,7 @@ function updateWeeklyGoal() {
   goalStatus.textContent =
     `${completed}/${weeklyGoal} ulaşım değişikliği · ` +
     `%${Math.round(percent)} tamamlandı. ` +
-    `Beyan edilen değişikliklerin tahmini ` +
+    `Otomobil yerine yapıldığını belirttiğin yolculukların tahmini ` +
     `azaltımı: ${formatEmission(estimatedSaving)} kg CO₂e.`;
 
   if (completed >= weeklyGoal) {
@@ -513,6 +530,10 @@ function updateWeeklyGoal() {
 // ==========================================
 // ULASIM KARSILASTIRMASI
 // ==========================================
+
+function resetComparison() {
+  comparisonResult.textContent = "Karşılaştırma sonucu burada gösterilecek.";
+}
 
 compareButton.addEventListener("click", () => {
   if (trips.length === 0) {
@@ -546,7 +567,7 @@ compareButton.addEventListener("click", () => {
   const title = document.createElement("strong");
 
   title.textContent =
-    "Son yolculuğunun alternatif senaryosu";
+    `Son yolculuğunun alternatif senaryosu · ${lastTrip.distance.toLocaleString("tr-TR")} km`;
 
   const before = document.createElement("p");
 
@@ -595,14 +616,76 @@ compareButton.addEventListener("click", () => {
 // UYGULAMAYI YENILEME
 // ==========================================
 
+function updateWeeklyChart(weekStart, weeklyTrips) {
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(weekStart);
+    date.setDate(date.getDate() + index);
+    return { date, emission: 0 };
+  });
+  const daysByDate = new Map(days.map(day => [dateKey(day.date), day]));
+
+  for (const trip of weeklyTrips) {
+    daysByDate.get(dateKey(new Date(trip.createdAt))).emission += trip.emission;
+  }
+
+  const maxEmission = Math.max(...days.map(day => day.emission));
+  const accessibleValues = [];
+  weeklyChart.replaceChildren();
+
+  for (const { date, emission } of days) {
+    const column = document.createElement("div");
+    column.className = "chart-column";
+
+    const value = document.createElement("span");
+    value.className = "chart-value";
+    value.textContent = formatEmission(emission);
+
+    const bar = document.createElement("div");
+    bar.className = "chart-bar";
+    bar.style.height = `${maxEmission > 0 ? 150 * (emission / maxEmission) : 0}px`;
+
+    const label = document.createElement("span");
+    label.className = "chart-day";
+    label.textContent = date.toLocaleDateString("tr-TR", { weekday: "short" });
+    accessibleValues.push(`${date.toLocaleDateString("tr-TR", { weekday: "long" })} ${value.textContent} kg CO₂e`);
+
+    column.append(value, bar, label);
+    weeklyChart.appendChild(column);
+  }
+
+  weeklyChart.setAttribute("aria-label", `Günlük emisyonlar. ${accessibleValues.join(", ")}`);
+  chartSummary.textContent = weeklyTrips.length
+    ? `Bu haftanın toplamı: ${formatEmission(days.reduce((total, day) => total + day.emission, 0))} kg CO₂e.`
+    : "Bu hafta henüz yolculuk kaydedilmedi. Değerler kg CO₂e cinsindendir.";
+}
+
+let renderedDay;
+
 function refreshApp() {
-  updateDashboard();
+  const now = new Date();
+  renderedDay = dateKey(now);
+  const weekStart = getWeekStart(now);
+  const weeklyTrips = getWeeklyTrips(weekStart, now);
+  updateDashboard(renderedDay, weeklyTrips);
+  updateWeeklyChart(weekStart, weeklyTrips);
   renderTrips();
   updateRecommendation();
-  updateWeeklyGoal();
+  updateWeeklyGoal(weeklyTrips);
+}
+
+function refreshOnDayChange() {
+  if (dateKey(new Date()) !== renderedDay) {
+    refreshApp();
+  }
+}
+
+if (weeklyGoal !== null) {
+  weeklyGoalInput.value = weeklyGoal;
 }
 
 updateSwitchVisibility();
 refreshApp();
+setInterval(refreshOnDayChange, 1000);
+document.addEventListener("visibilitychange", refreshOnDayChange);
 
 console.log("İSÜ Karbon uygulaması başlatıldı.");

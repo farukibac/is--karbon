@@ -1,0 +1,220 @@
+
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>İSÜ Karbon | Sürdürülebilir Ulaşım</title>
+  <meta name="description"
+        content="İstinye Üniversitesi öğrencileri için karbon ayak izi takip platformu.">
+
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+
+<body>
+
+  <!-- ÜST MENÜ -->
+  <header class="header">
+    <div class="container header-content">
+      <a href="#panel" class="logo">🌿 İSÜ Karbon</a>
+
+      <nav aria-label="Ana menü">
+        <a href="#panel">Panelim</a>
+        <a href="#yolculuk">Yolculuk Ekle</a>
+        <a href="#hedefler">Hedeflerim</a>
+        <a href="#karsilastirma">Karşılaştırma</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <!-- ANA PANEL -->
+    <section id="panel" class="welcome">
+      <h1>Karbon Ayak İzi Panelim</h1>
+      <p>
+        Günlük yolculuklarını kaydet, karbon ayak izini
+        öğren ve daha sürdürülebilir tercihler yap.
+      </p>
+    </section>
+
+    <!-- ÖZET KARTLARI -->
+    <section class="summary" aria-label="Karbon özeti">
+
+      <div class="card stat-card">
+        <p>Bugünkü karbon ayak izin</p>
+        <h2 id="todayEmission">0.00 kg</h2>
+        <small>CO₂e</small>
+      </div>
+
+      <div class="card stat-card">
+        <p>Haftalık karbon ayak izin</p>
+        <h2 id="weeklyEmission">0.00 kg</h2>
+        <small>CO₂e</small>
+      </div>
+
+      <div class="card stat-card">
+        <p>Toplam yolculuk</p>
+        <h2 id="totalTrips">0</h2>
+        <small>Kaydedilen yolculuk</small>
+      </div>
+
+    </section>
+
+    <!-- YOLCULUK EKLEME -->
+    <section id="yolculuk" class="card">
+      <h2>Yeni Yolculuk Ekle</h2>
+      <p>Bugün hangi ulaşım aracını kullandın?</p>
+
+      <form id="tripForm">
+
+        <label for="transport">Ulaşım aracı</label>
+        <select id="transport" required>
+          <option value="car">Otomobil</option>
+          <option value="bus">Otobüs</option>
+          <option value="metro">Metro / Raylı Sistem</option>
+          <option value="walk">Yürüyüş</option>
+          <option value="bike">Bisiklet</option>
+        </select>
+
+        <label for="distance">Yolculuk mesafesi (km)</label>
+        <input
+          type="number"
+          id="distance"
+          min="0.1"
+          step="0.1"
+          placeholder="Örneğin: 10"
+          required
+        >
+
+        <button type="submit" class="primary-button">
+          Yolculuğu Kaydet
+        </button>
+
+      </form>
+
+      <p id="message" role="status" aria-live="polite"></p>
+    </section>
+
+    <!-- AKILLI ULAŞIM ÖNERİSİ -->
+    <section id="oneriler" class="card recommendation">
+      <h2>🌱 Sürdürülebilir Ulaşım Önerisi</h2>
+
+      <p id="recommendationText">
+        Henüz yolculuk eklemedin.
+        Yolculuk kaydettiğinde sana daha çevreci
+        ulaşım alternatifleri önereceğiz.
+      </p>
+
+      <p id="potentialSaving"></p>
+    </section>
+
+    <!-- HAFTALIK HEDEFLER -->
+    <section id="hedefler" class="card">
+      <h2>Haftalık Hedefim</h2>
+
+      <p>
+        Bu hafta otomobil yerine daha çevreci
+        ulaşım araçları kullanmayı hedefle.
+      </p>
+
+      <label for="weeklyGoal">
+        Bu hafta kaç otomobil yolculuğunu değiştirmek istiyorsun?
+      </label>
+
+      <input
+        type="number"
+        id="weeklyGoal"
+        min="1"
+        max="30"
+        value="2"
+      >
+
+      <button type="button" id="saveGoal">
+        Hedefimi Kaydet
+      </button>
+
+      <div class="goal-progress">
+        <p id="goalStatus">Henüz hedef oluşturulmadı.</p>
+        <progress id="goalProgress" value="0" max="100"></progress>
+      </div>
+    </section>
+
+    <!-- ULAŞIM KARŞILAŞTIRMA -->
+    <section id="karsilastirma" class="card">
+      <h2>Ulaşım Karşılaştırması</h2>
+
+      <p>
+        Aynı mesafeyi farklı ulaşım araçlarıyla
+        katetseydin karbon ayak izin nasıl değişirdi?
+      </p>
+
+      <label for="compareTransport">
+        Alternatif ulaşım aracı
+      </label>
+
+      <select id="compareTransport">
+        <option value="bus">Otobüs</option>
+        <option value="metro">Metro / Raylı Sistem</option>
+        <option value="walk">Yürüyüş</option>
+        <option value="bike">Bisiklet</option>
+        <option value="car">Otomobil</option>
+      </select>
+
+      <button type="button" id="compareButton">
+        Karşılaştır
+      </button>
+
+      <div id="comparisonResult" aria-live="polite">
+        Karşılaştırma sonucu burada gösterilecek.
+      </div>
+    </section>
+
+    <!-- YOLCULUK GEÇMİŞİ -->
+    <section class="card">
+      <h2>Yolculuk Geçmişim</h2>
+
+      <div id="tripList">
+        <p>Henüz kaydedilmiş yolculuk bulunmuyor.</p>
+      </div>
+    </section>
+
+    <!-- HESAPLAMA BİLGİSİ -->
+    <section class="info-section">
+      <h2>Karbon ayak izi nasıl hesaplanıyor?</h2>
+
+      <p>
+        Yolculuğun tahmini emisyonu, kat edilen
+        mesafenin ulaşım türüne ait emisyon
+        katsayısıyla çarpılmasıyla hesaplanır.
+      </p>
+
+      <p>
+        İlk prototipte kullanılan katsayılar
+        temsili test verileridir. Nihai sürümde
+        doğrulanmış kaynaklar ve hesaplama
+        varsayımları gösterilecektir.
+      </p>
+
+      <p>
+        Önerilen ulaşım değişikliklerinden doğabilecek
+        tasarruflar gerçekleşmiş tasarruf olarak sayılmaz.
+      </p>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p>
+        İSÜ Karbon — İstinye Üniversitesi
+        Sürdürülebilir Ulaşım Prototipi
+      </p>
+      <p>T-ERA Dijital Dönüşüm ve Sürdürülebilirlik Vaka Yarışması</p>
+    </div>
+  </footer>
+
+</body>
+</html>

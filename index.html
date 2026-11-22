@@ -3,6 +3,7 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <title>İSÜ Karbon | Sürdürülebilir Ulaşım</title>
@@ -10,7 +11,13 @@
         content="İstinye Üniversitesi öğrencileri için karbon ayak izi takip platformu.">
 
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script>
+  <script src="route-config.js" defer></script>
   <script src="app.js" defer></script>
+  <script src="regular-routes.js" defer></script>
+  <script src="route.js" defer></script>
+  <script src="campus-rings.js" defer></script>
 </head>
 
 <body>
@@ -21,210 +28,375 @@
       <a href="#panel" class="logo">🌿 İSÜ Karbon</a>
 
       <nav aria-label="Ana menü">
-        <a href="#panel">Panelim</a>
-        <a href="#yolculuk">Yolculuk Ekle</a>
-        <a href="#hedefler">Hedeflerim</a>
-        <a href="#karsilastirma">Karşılaştırma</a>
+        <a href="#panel" aria-current="page">Panelim</a>
+        <a href="#yolculuk">Yolculuklarım</a>
+        <a href="#akilli-rota">Akıllı Rota</a>
       </nav>
     </div>
   </header>
 
   <main class="container">
+    <section id="panel" data-view>
+      <div class="welcome">
+        <h1 tabindex="-1">Karbon ayak izi panelim</h1>
+        <p>Yolculuklarının bugünkü ve haftalık etkisini takip et.</p>
+      </div>
+      <section class="summary" aria-label="Karbon özeti">
+        <div class="card stat-card">
+          <p>Bugünkü karbon ayak izin</p>
+          <h2 id="todayEmission">0.00 kg</h2>
+          <small>CO₂e</small>
+        </div>
+        <div class="card stat-card">
+          <p>Haftalık karbon ayak izin</p>
+          <h2 id="weeklyEmission">0.00 kg</h2>
+          <small>CO₂e</small>
+        </div>
+        <div class="card stat-card">
+          <p>Toplam yolculuk</p>
+          <h2 id="totalTrips">0</h2>
+          <small>Kaydedilen yolculuk</small>
+        </div>
+        <div class="card stat-card reduction-card">
+          <p>Tahmini karbon azaltımım</p>
+          <h2 id="weeklyReduction">0,00 kg CO₂e</h2>
+          <small id="weeklyReductionInfo">Bu hafta · Kullanıcı beyanına dayalı</small>
+        </div>
+      </section>
 
-    <!-- ANA PANEL -->
-    <section id="panel" class="welcome">
-      <h1>Karbon Ayak İzi Panelim</h1>
-      <p>
-        Günlük yolculuklarını kaydet, karbon ayak izini
-        öğren ve daha sürdürülebilir tercihler yap.
-      </p>
+      <div class="dashboard-grid">
+        <section class="card">
+          <h2>Haftalık karbon grafiği</h2>
+          <div id="weeklyChart" class="weekly-chart" role="img" aria-label="Haftalık karbon emisyon grafiği"></div>
+          <p id="chartSummary" class="chart-summary"></p>
+        </section>
+        <section id="hedefler" class="card">
+          <h2>Haftalık hedefim</h2>
+          <label for="weeklyGoal">Hedeflenen otomobil yolculuğu değişikliği</label>
+          <input type="number" id="weeklyGoal" min="1" max="30" value="2">
+          <button type="button" id="saveGoal">Hedefimi kaydet</button>
+          <div class="goal-progress">
+            <p id="goalFeedback" role="status"></p>
+            <p id="goalStatus">Henüz hedef oluşturulmadı.</p>
+            <progress id="goalProgress" aria-label="Haftalık hedef ilerlemesi" value="0" max="100"></progress>
+          </div>
+        </section>
+      </div>
+      <section class="card">
+        <div class="section-heading">
+          <h2>Son yolculuklar</h2>
+          <a href="#yolculuk">Tüm yolculuklar</a>
+        </div>
+        <div id="recentTrips"></div>
+      </section>
+      <section class="card">
+        <div class="section-heading">
+          <h2>Düzenli Rota Hedefim</h2>
+          <a href="#duzenli-rotalar">Düzenli rotalarımı aç</a>
+        </div>
+        <p id="regularDashboard"></p>
+        <progress id="regularDashboardProgress" aria-label="Haftalık düzenli rota hedefi" value="0" max="1" hidden></progress>
+      </section>
     </section>
 
-    <!-- ÖZET KARTLARI -->
-    <section class="summary" aria-label="Karbon özeti">
-
-      <div class="card stat-card">
-        <p>Bugünkü karbon ayak izin</p>
-        <h2 id="todayEmission">0.00 kg</h2>
-        <small>CO₂e</small>
+    <section id="yolculuk" data-view hidden>
+      <div class="welcome">
+        <h1 tabindex="-1">Yolculuklarım</h1>
+        <p>Yaptığın yolculuğu hesapla ve aynı mesafede bir alternatifle karşılaştır.</p>
       </div>
+      <section class="card">
+        <h2>Yolculuk ekle</h2>
+        <form id="tripForm">
+          <div class="trip-fields">
+            <div>
+              <label for="transport">Kullandığın ulaşım aracı</label>
+              <select id="transport" required>
+                <option value="car">Otomobil</option>
+                <option value="bus">Otobüs</option>
+                <option value="metro">Metro / Raylı Sistem</option>
+                <option value="walk">Yürüyüş</option>
+                <option value="bike">Bisiklet</option>
+              </select>
+            </div>
+            <div>
+              <label for="distance">Yolculuk mesafesi (km)</label>
+              <input type="number" id="distance" min="0.1" max="1000" step="0.1" placeholder="Örn. 10" required>
+            </div>
+          </div>
+          <div class="emission-preview" role="status">
+            <span>Tahmini karbon ayak izi</span>
+            <strong id="tripEstimate">Mesafe gir</strong>
+          </div>
+          <div class="comparison-fields">
+            <div>
+              <label for="compareTransport">Alternatif ulaşım aracı</label>
+              <select id="compareTransport">
+                <option value="bus">Otobüs</option>
+                <option value="metro">Metro / Raylı Sistem</option>
+                <option value="walk">Yürüyüş</option>
+                <option value="bike">Bisiklet</option>
+                <option value="car">Otomobil</option>
+              </select>
+            </div>
+            <button type="button" id="compareButton" class="route-secondary">Karşılaştır</button>
+          </div>
+          <div id="comparisonResult" aria-live="polite"></div>
+          <button type="submit" class="primary-button">Yaptığım yolculuğu kaydet</button>
+        </form>
+        <p id="message" role="status"></p>
+      </section>
 
-      <div class="card stat-card">
-        <p>Haftalık karbon ayak izin</p>
-        <h2 id="weeklyEmission">0.00 kg</h2>
-        <small>CO₂e</small>
-      </div>
+      <section class="card">
+        <h2>Yolculuk Geçmişim</h2>
 
-      <div class="card stat-card">
-        <p>Toplam yolculuk</p>
-        <h2 id="totalTrips">0</h2>
-        <small>Kaydedilen yolculuk</small>
-      </div>
+        <div id="tripList">
+          <p>Henüz kaydedilmiş yolculuk bulunmuyor.</p>
+        </div>
+        <p id="historyMessage" role="status"></p>
+      </section>
+
+      <section id="oneriler" class="card recommendation">
+        <h2>🌱 Sürdürülebilir Ulaşım Önerisi</h2>
+
+        <p id="recommendationText">
+          Henüz yolculuk eklemedin.
+          Yolculuk kaydettiğinde sana daha çevreci
+          ulaşım alternatifleri önereceğiz.
+        </p>
+
+        <p id="potentialSaving"></p>
+      </section>
+
+      <details class="card route-method">
+        <summary>Karbon ayak izi nasıl hesaplanıyor?</summary>
+
+        <p>
+          Yolculuğun tahmini emisyonu, kat edilen
+          mesafenin ulaşım türüne ait emisyon
+          katsayısıyla çarpılmasıyla hesaplanır.
+        </p>
+
+        <p>
+          İlk prototipte kullanılan katsayılar
+          temsili test verileridir. Nihai sürümde
+          doğrulanmış kaynaklar ve hesaplama
+          varsayımları gösterilecektir.
+        </p>
+
+        <p>
+          Önerilen ulaşım değişikliklerinden doğabilecek
+          tasarruflar gerçekleşmiş tasarruf olarak sayılmaz.
+        </p>
+      </details>
 
     </section>
 
-<!-- HAFTALIK KARBON GRAFIGI -->
-<section class="card">
-  <h2>Haftalık Karbon Analizi</h2>
-  <p>
-    Bu hafta ulaşım kaynaklı karbon ayak izinin
-    günlük dağılımını incele.
-  </p>
-
-  <div id="weeklyChart"
-       class="weekly-chart"
-       role="img"
-       aria-label="Haftalık karbon emisyon grafiği">
-  </div>
-
-  <p id="chartSummary" class="chart-summary">
-    Henüz grafik verisi bulunmuyor.
-  </p>
-</section>
-
-    <!-- YOLCULUK EKLEME -->
-    <section id="yolculuk" class="card">
-      <h2>Yeni Yolculuk Ekle</h2>
-      <p>Bugün hangi ulaşım aracını kullandın?</p>
-
-      <form id="tripForm">
-
-        <label for="transport">Ulaşım aracı</label>
-        <select id="transport" required>
-          <option value="car">Otomobil</option>
-          <option value="bus">Otobüs</option>
-          <option value="metro">Metro / Raylı Sistem</option>
-          <option value="walk">Yürüyüş</option>
-          <option value="bike">Bisiklet</option>
+    <section id="akilli-rota" data-view hidden>
+      <div class="welcome">
+        <h1 tabindex="-1">Akıllı Rota</h1>
+        <p>İstanbul’da iki nokta seç ve rota mesafelerine göre kişi başına emisyonu karşılaştır.</p>
+      </div>
+      <div class="card route-workspace">
+        <a class="ring-panel-link" href="#kampus-ringleri">İSÜ Kampüs Ringleri</a>
+        <label for="routePreset">Hazır rotalar</label>
+        <select id="routePreset">
+          <option value="">Hazır rota seç</option>
+          <option value="custom">Kendi rotamı oluştur</option>
         </select>
+        <div class="route-grid">
+          <div>
+            <label for="routeStart">Başlangıç</label>
+            <input id="routeStart" type="search" maxlength="120" autocomplete="off" placeholder="Örn. Yenikapı Metro İstasyonu, Fatih">
+            <select id="routeStartResults" aria-label="Başlangıç arama sonuçları" hidden></select>
+            <button type="button" class="route-secondary" id="pickStart" disabled>Başlangıcı haritadan seç</button>
+          </div>
+          <div>
+            <label for="routeEnd">Varış</label>
+            <input id="routeEnd" type="search" maxlength="120" autocomplete="off" placeholder="Örn. Vadistanbul, Sarıyer">
+            <select id="routeEndResults" aria-label="Varış arama sonuçları" hidden></select>
+            <button type="button" class="route-secondary" id="pickEnd" disabled>Varışı haritadan seç</button>
+          </div>
+        </div>
+        <div class="route-actions">
+          <button type="button" id="routeSwap" class="route-secondary">Noktaları değiştir</button>
+          <button type="button" id="routeCalculate">Rotayı hesapla</button>
+        </div>
+        <p id="routeStatus" role="status"></p>
+        <div id="routeMap" aria-label="İstanbul rota haritası"></div>
+        <p id="routeMapStatus" role="status"></p>
+        <div class="route-toggles">
+          <label><input type="checkbox" id="showCarRoute" checked disabled> Otomobil rotası</label>
+          <label><input type="checkbox" id="showRailRoute" checked disabled> Raylı sistem rotası</label>
+          <label class="route-key-walk"><input type="checkbox" id="showWalkRoute" checked disabled> Yürüyüş rotası</label>
+          <label class="route-key-bike"><input type="checkbox" id="showBikeRoute" checked disabled> Bisiklet rotası</label>
+          <label id="busLayerLabel" hidden><input type="checkbox" id="showBusRoute" checked disabled> Otobüs hattı</label>
+          <label class="route-key-ring" hidden><input type="checkbox" id="showRingRoute" checked disabled> Kampüs ringi</label>
+        </div>
 
-        <label for="distance">Yolculuk mesafesi (km)</label>
-        <input
-          type="number"
-          id="distance"
-          min="0.1"
-          max="1000"
-          step="0.1"
-          placeholder="Örneğin: 10"
-          required
-        >
-
-        <button type="submit" class="primary-button">
-          Yolculuğu Kaydet
-        </button>
-
-      </form>
-
-      <p id="message" role="status" aria-live="polite"></p>
-    </section>
-
-    <!-- AKILLI ULAŞIM ÖNERİSİ -->
-    <section id="oneriler" class="card recommendation">
-      <h2>🌱 Sürdürülebilir Ulaşım Önerisi</h2>
-
-      <p id="recommendationText">
-        Henüz yolculuk eklemedin.
-        Yolculuk kaydettiğinde sana daha çevreci
-        ulaşım alternatifleri önereceğiz.
-      </p>
-
-      <p id="potentialSaving"></p>
-    </section>
-
-    <!-- HAFTALIK HEDEFLER -->
-    <section id="hedefler" class="card">
-      <h2>Haftalık Hedefim</h2>
-
-      <p>
-        Hedef sayın her hafta tekrar kullanılır. İlerleme pazartesi günü yeni haftanın yolculuklarıyla hesaplanır.
-      </p>
-
-      <label for="weeklyGoal">
-        Bu hafta kaç otomobil yolculuğunu değiştirmek istiyorsun?
-      </label>
-
-      <input
-        type="number"
-        id="weeklyGoal"
-        min="1"
-        max="30"
-        value="2"
-      >
-
-      <button type="button" id="saveGoal">
-        Hedefimi Kaydet
-      </button>
-
-      <div class="goal-progress">
-        <p id="goalFeedback" role="status"></p>
-        <p id="goalStatus">Henüz hedef oluşturulmadı.</p>
-        <progress id="goalProgress" aria-label="Haftalık hedef ilerlemesi" value="0" max="100"></progress>
+        <div class="route-grid">
+          <div><label for="routePassengers">Otomobildeki kişi sayısı</label><input id="routePassengers" type="number" min="1" max="50" step="1" value="1" required></div>
+          <div><label for="routeFrequency">Haftalık tek yön yolculuk sayısı</label><input id="routeFrequency" type="number" min="1" max="100" step="1" value="5" required></div>
+        </div>
+        <div class="route-grid route-results" id="routeResults" aria-live="polite" hidden>
+          <article><h3>Otomobil</h3><p id="carMetrics"></p></article>
+          <article id="walkCard"><h3>Yürüyüş</h3><p id="walkMetrics"></p></article>
+          <article id="bikeCard"><h3>Bisiklet</h3><p id="bikeMetrics"></p></article>
+          <article><h3>Pilot raylı sistem</h3><p id="railMetrics"></p></article>
+        </div>
+        <article id="ringCard" class="route-ring" hidden>
+          <h3>Kampüs ringi</h3>
+          <p id="ringMetrics"></p>
+          <a class="ring-panel-link" href="#kampus-ringleri">Ring hesaplamasını incele</a>
+        </article>
+        <fieldset id="routeSave" class="route-selection" hidden>
+          <legend>Bu yolculuğu hangi araçla yaptın?</legend>
+          <div class="route-grid" id="routeTransportChoices">
+            <label><input type="radio" name="routeTransport" value="car"> Otomobil <small id="choiceCar"></small></label>
+            <label><input type="radio" name="routeTransport" value="bus"> Otobüs <small id="choiceBus"></small></label>
+            <label><input type="radio" name="routeTransport" value="bike"> Bisiklet <small id="choiceBike"></small></label>
+            <label><input type="radio" name="routeTransport" value="walk"> Yürüyüş <small id="choiceWalk"></small></label>
+            <label><input type="radio" name="routeTransport" value="metro"> Raylı sistem <small id="choiceMetro"></small></label>
+            <label><input type="radio" name="routeTransport" value="ring"> Kampüs ringi <small id="choiceRing"></small></label>
+          </div>
+          <div id="routeBusInput" hidden>
+            <label for="routeBusKm">Otobüsle katettiğin mesafe (km)</label>
+            <input id="routeBusKm" type="number" min="0.000001" max="1000" step="any" required>
+            <p>Tahmini – kullanıcı beyanı. Bu güzergâh için doğrulanmış hat verisi bulunmuyor.</p>
+          </div>
+          <p id="routeSelectionStatus" role="status"></p>
+        </fieldset>
+        <div id="routeImpact" hidden>
+          <p id="routeDifference"></p>
+          <div class="route-bars" aria-label="Kişi başına emisyon karşılaştırması">
+            <div><span id="carBarLabel"></span><div class="route-bar-track"><div id="carBar" class="route-bar"></div></div></div>
+            <div><span id="railBarLabel"></span><div class="route-bar-track"><div id="railBar" class="route-bar"></div></div></div>
+          </div>
+          <ul id="routeAlternatives"></ul>
+          <p id="routeProjection"></p>
+        </div>
+        <div id="routeSaveActions" hidden>
+          <label class="route-confirm" id="routeConfirmLabel" hidden><input type="checkbox" id="routeConfirm"> Bu yolculukta önceki ulaşım tercihim olan otomobil yerine seçtiğim aracı kullandım.</label>
+          <div class="route-actions">
+            <button type="button" id="saveSelectedRoute" disabled>Seçilen yolculuğu kaydet</button>
+          </div>
+          <p id="routeSaveStatus" role="status"></p>
+        </div>
+        <form id="regularCreate" class="regular-form" hidden>
+          <h2>Bu güzergâhı düzenli rota olarak kaydet</h2>
+          <p id="regularCalculated"></p>
+          <div class="route-grid">
+            <label>Rota adı (isteğe bağlı)<input name="label" maxlength="80" placeholder="Örn. Ev – Okul"></label>
+            <label>Haftalık tek yön yolculuk<input name="weekly" type="number" min="1" max="100" value="5" required></label>
+            <label>Mevcut ulaşım türü<select name="current" required></select></label>
+            <label>Planlanan alternatif<select name="alternative" required></select></label>
+          </div>
+          <button type="submit">Düzenli Rotalarıma Ekle</button>
+          <p id="regularCreateStatus" role="status"></p>
+        </form>
+        <details class="route-method">
+          <summary>Hesaplama varsayımları ve veri kaynakları</summary>
+          <p id="routeFactors"></p>
+          <p><a href="https://www.gov.uk/government/publications/greenhouse-gas-reporting-conversion-factors-2026">DESNZ 2026 karşılaştırma verileri</a> · <a href="https://www.metro.istanbul/Dosyalar/efqm/surdurebilirlik_raporu2024.pdf">Metro İstanbul 2024 ağ göstergeleri</a></p>
+          <p>Yürüyüş ve bisiklet profilleri feribotları hariç tutar. Bu türlerin işletim emisyonu prototipte sıfır kabul edilir. Yaşam döngüsü emisyonları bu hesaba dahil değildir. Otobüs için mevcut prototip katsayısı 0,10 kg CO₂e / yolcu-km kullanılır. Uzun mesafe işaretleri kişisel uygunluk veya altyapı değerlendirmesi içermez.</p>
+          <p><a href="https://nek.istanbul.edu.tr/ekos/TEZ/60672.pdf">İstasyon koordinatları</a> · <a href="https://www.istinye.edu.tr/tr/iletisim">Kampüs konumları</a> · <a href="https://www.istinye.edu.tr/tr/duyurular/vadi-ile-buyuyoruz">Kampüs servisi duyurusu</a></p>
+          <p>Karşılaştırma tek yön ve kişi başınadır. Haftalık tahmin, aynı rotanın tekrarlandığını varsayar. Yıllık tahminde 52 hafta kullanılır.</p>
+          <p>Uygulama enerjisi ulaşım sonuçlarına eklenmedi. Ölçüm için istemci ve sunucudaki ortalama güç (W) kullanım süresiyle (saat) çarpılıp 1000’e bölünerek kWh hesaplanabilir. Harita ve ağ servisleri ayrıca ölçülmelidir.</p>
+          <p class="route-sources"><a href="https://openrouteservice.org/">© openrouteservice.org by HeiGIT</a> | <a href="https://www.openstreetmap.org/copyright">Map data © OpenStreetMap contributors</a> · <a href="https://www.arcgis.com/home/item.html?id=7fa0b254f3f44ab786b64878a10efb0c">Pilot ray geometrisi</a> · <a href="https://www.metro.istanbul/Hatlarimiz/HatDetay?hat=M2">M2 aktarmaları</a> · <a href="https://www.vadistanbul.com/ulasim">Vadistanbul bağlantısı</a></p>
+        </details>
       </div>
+      <section id="kampus-ringleri" class="card" aria-labelledby="campusRingHeading">
+        <h2 id="campusRingHeading" tabindex="-1">İSÜ Kampüs Ringleri</h2>
+        <p>Kampüsler arası ring yolculuğunun karbon etkisini hesapla.</p>
+        <form id="campusRingForm">
+          <div class="route-grid">
+            <label>Yolculuk yönü
+              <select name="direction">
+                <option value="topkapi">İSÜ Topkapı Kampüsü → İSÜ Vadi Kampüsü</option>
+                <option value="vadi">İSÜ Vadi Kampüsü → İSÜ Topkapı Kampüsü</option>
+              </select>
+            </label>
+            <label>Otomobildeki kişi sayısı<input name="carPassengers" type="number" min="1" max="50" step="1" value="1" required></label>
+          </div>
+          <p id="campusRingPilotNote"></p>
+          <div class="route-actions">
+            <button type="button" class="route-secondary" id="campusRingCompare">Otomobille karşılaştır</button>
+            <button type="button" class="route-secondary" id="campusRingMap">Kampüsleri haritada göster</button>
+          </div>
+          <div class="route-grid campus-ring-cards">
+            <article><h3>Benim ring emisyonum</h3><p id="campusRingPersonal"></p></article>
+            <article><h3>Ringin toplam emisyonu</h3><p id="campusRingTotal"></p></article>
+            <article><h3>Kişisel potansiyel azaltımım</h3><p id="campusRingComparison" role="status"></p></article>
+            <article>
+              <h3 id="campusRingGroupHeading">20 kişi için varsayımsal karşılaştırma</h3>
+              <label id="campusRingGroupAssumption" class="route-confirm" hidden><input name="groupReference" type="checkbox"> Aynı yön, ORS mesafesi ve otomobildeki kişi sayısı varsayımını tüm ring yolcularına uygula.</label>
+              <p id="campusRingGroup" role="status"></p>
+            </article>
+          </div>
+          <details class="route-method">
+            <summary>Hesaplama nasıl yapılıyor?</summary>
+            <p id="campusRingFormula"></p>
+            <p>Temsili kampüs ringinin güzergâhı, doluluğu ve emisyon katsayısı gerçek İSÜ seferlerinden doğrulanmadı. Karşılaştırma kişisel farkı gösterir. Grup senaryosu, ölçülen sistem etkisini veya trafikten çekilen otomobil sayısını vermez.</p>
+          </details>
+          <label class="route-confirm" id="campusRingDeclare" hidden><input name="declared" type="checkbox"> Bu yolculukta, yukarıdaki otomobil yolculuğu yerine ringi kullandım.</label>
+          <div class="route-actions">
+            <button type="button" id="campusRingSave">Ring yolculuğumu kaydet</button>
+          </div>
+          <details class="route-method">
+            <summary>Düzenli Rotalarıma ekle</summary>
+            <label>Haftalık tek yön yolculuk<input name="weekly" type="number" min="1" max="100" step="1" value="5" required></label>
+            <button type="button" class="route-secondary" id="campusRingPlan" disabled>Düzenli rota planını kaydet</button>
+          </details>
+          <p id="campusRingStatus" role="status"></p>
+        </form>
+      </section>
+      <section id="duzenli-rotalar" class="card" aria-labelledby="regularHeading">
+        <h2 id="regularHeading" tabindex="-1">Düzenli Rotalarım</h2>
+        <p>Haftalık hedef pazartesi yenilenir. Azaltım hesabına, önceki tercihin yerine alternatifle yaptığını belirttiğin karşılaştırılabilir yolculuklar girer.</p>
+        <p id="regularStatus" role="status"></p>
+        <div id="regularList"></div>
+      </section>
     </section>
 
-    <!-- ULAŞIM KARŞILAŞTIRMA -->
-    <section id="karsilastirma" class="card">
-      <h2>Ulaşım Karşılaştırması</h2>
-
-      <p>
-        Aynı mesafeyi farklı ulaşım araçlarıyla
-        katetseydin karbon ayak izin nasıl değişirdi?
-      </p>
-
-      <label for="compareTransport">
-        Alternatif ulaşım aracı
-      </label>
-
-      <select id="compareTransport">
-        <option value="bus">Otobüs</option>
-        <option value="metro">Metro / Raylı Sistem</option>
-        <option value="walk">Yürüyüş</option>
-        <option value="bike">Bisiklet</option>
-        <option value="car">Otomobil</option>
-      </select>
-
-      <button type="button" id="compareButton">
-        Karşılaştır
-      </button>
-
-      <div id="comparisonResult" aria-live="polite">
-        Karşılaştırma sonucu burada gösterilecek.
-      </div>
-    </section>
-
-    <!-- YOLCULUK GEÇMİŞİ -->
-    <section class="card">
-      <h2>Yolculuk Geçmişim</h2>
-
-      <div id="tripList">
-        <p>Henüz kaydedilmiş yolculuk bulunmuyor.</p>
-      </div>
-      <p id="historyMessage" role="status"></p>
-    </section>
-
-    <!-- HESAPLAMA BİLGİSİ -->
-    <section class="info-section">
-      <h2>Karbon ayak izi nasıl hesaplanıyor?</h2>
-
-      <p>
-        Yolculuğun tahmini emisyonu, kat edilen
-        mesafenin ulaşım türüne ait emisyon
-        katsayısıyla çarpılmasıyla hesaplanır.
-      </p>
-
-      <p>
-        İlk prototipte kullanılan katsayılar
-        temsili test verileridir. Nihai sürümde
-        doğrulanmış kaynaklar ve hesaplama
-        varsayımları gösterilecektir.
-      </p>
-
-      <p>
-        Önerilen ulaşım değişikliklerinden doğabilecek
-        tasarruflar gerçekleşmiş tasarruf olarak sayılmaz.
-      </p>
-    </section>
-
+    <template id="regularCardTemplate">
+      <article class="regular-card">
+        <h3 data-field="title"></h3>
+        <p data-field="direction"></p>
+        <div class="route-grid regular-metrics">
+          <p data-field="current"></p><p data-field="alternative"></p>
+          <p data-field="potential"></p><p data-field="declared"></p>
+        </div>
+        <p data-field="progress"></p>
+        <progress aria-label="Bu haftaki düzenli rota hedefi" value="0"></progress>
+        <p data-field="total"></p>
+        <details>
+          <summary>Yolculuk kaydet veya geçmişten ilişkilendir</summary>
+          <form class="regular-form" data-form="journey">
+            <div class="route-grid">
+              <label>Kullandığın ulaşım türü<select name="mode"></select></label>
+              <label>Yolculuk tarihi ve saati (Türkiye)<input type="datetime-local" name="when" required></label>
+            </div>
+            <label>Geçmişten seç<select name="trip"><option value="">Yeni yolculuk kaydet</option></select></label>
+            <label class="route-confirm"><input type="checkbox" name="declared"> Bu yolculukta kartta gösterilen mevcut ulaşım tercihim yerine planladığım alternatifi kullandım.</label>
+            <button type="submit">Yolculuğu işle</button>
+          </form>
+          <ul data-field="journeys"></ul>
+        </details>
+        <details>
+          <summary>Düzenle</summary>
+          <form class="regular-form" data-form="edit">
+            <label class="route-confirm" hidden><input type="checkbox" name="replace"> Akıllı Rota’da son hesaplanan güzergâhı ve sonuçları kullan</label>
+            <div class="route-grid">
+              <label>Rota adı<input name="label" maxlength="80"></label>
+              <label>Haftalık tek yön yolculuk<input name="weekly" type="number" min="1" max="100" required></label>
+              <label>Mevcut ulaşım türü<select name="current" required></select></label>
+              <label>Planlanan alternatif<select name="alternative" required></select></label>
+            </div>
+            <button type="submit">Değişiklikleri kaydet</button>
+          </form>
+        </details>
+        <button type="button" class="delete-button" data-action="delete">Düzenli rotayı sil</button>
+      </article>
+    </template>
   </main>
 
   <footer class="footer">

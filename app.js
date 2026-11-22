@@ -5,25 +5,13 @@
 // ISU KARBON - ILK CALISAN PROTOTIP
 // ==========================================
 
-// TEMSILI TEST KATSAYILARI
-// Birim: kg CO2e / yolcu-km
-// Yarisma tesliminden once kaynakli katsayilarla
-// degistirilmelidir.
-
-const factors = {
-  car: 0.17,
-  bus: 0.10,
-  metro: 0.04,
-  walk: 0,
-  bike: 0
-};
-
 const transportNames = {
   car: "Otomobil",
   bus: "Otobüs",
   metro: "Metro / Raylı Sistem",
   walk: "Yürüyüş",
-  bike: "Bisiklet"
+  bike: "Bisiklet",
+  ring: "Kampüs ringi"
 };
 
 const TRIPS_KEY = "isuKarbonTripsV1";
@@ -53,22 +41,24 @@ function writeStorage(key, data) {
   }
 }
 
-const storedTrips = readStorage(TRIPS_KEY, []);
+function loadTrips() {
+  const storedTrips = readStorage(TRIPS_KEY, []);
+  return Array.isArray(storedTrips)
+    ? [...new Map(storedTrips.filter(trip =>
+        trip &&
+        typeof trip.id === "string" &&
+        Object.hasOwn(transportNames, trip.transport) &&
+        Number.isFinite(trip.distance) &&
+        trip.distance > 0 &&
+        Number.isFinite(trip.emission) &&
+        trip.emission >= 0 &&
+        typeof trip.createdAt === "string" &&
+        !Number.isNaN(Date.parse(trip.createdAt))
+      ).map(trip => [trip.id, trip])).values()]
+    : [];
+}
 
-let trips = Array.isArray(storedTrips)
-  ? storedTrips.filter(trip =>
-      trip &&
-      typeof trip.id === "string" &&
-      Object.hasOwn(factors, trip.transport) &&
-      Number.isFinite(trip.distance) &&
-      trip.distance > 0 &&
-      Number.isFinite(trip.emission) &&
-      trip.emission >= 0 &&
-      typeof trip.createdAt === "string" &&
-      !Number.isNaN(Date.parse(trip.createdAt))
-    )
-  : [];
-
+let trips = loadTrips();
 let weeklyGoal = readStorage(GOAL_KEY, null);
 
 if (!Number.isInteger(weeklyGoal) ||
@@ -77,13 +67,20 @@ if (!Number.isInteger(weeklyGoal) ||
   weeklyGoal = null;
 }
 
-function saveTrips(nextTrips) {
-  if (!writeStorage(TRIPS_KEY, nextTrips)) {
+function updateTripStorage(update) {
+  try {
+    const raw = localStorage.getItem(TRIPS_KEY);
+    const records = raw === null ? [] : JSON.parse(raw);
+    if (!Array.isArray(records) || !writeStorage(TRIPS_KEY, update(records))) return false;
+    trips = loadTrips();
+    return true;
+  } catch {
     return false;
   }
+}
 
-  trips = nextTrips;
-  return true;
+function saveTrip(trip) {
+  return updateTripStorage(records => records.some(item => item?.id === trip.id) ? records : [...records, trip]);
 }
 
 function showFeedback(element, message, isError = false) {
@@ -91,31 +88,39 @@ function showFeedback(element, message, isError = false) {
   element.toggleAttribute("data-error", isError);
 }
 
+function createTripId() {
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+}
+
 // ==========================================
 // TARIH ISLEMLERI
 // ==========================================
 
-function dateKey(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+const istanbulZone = "Europe/Istanbul";
+const istanbulDateTime = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: istanbulZone, year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+});
 
-  return `${year}-${month}-${day}`;
+function istanbulMinute(date) {
+  return istanbulDateTime.format(date).replace(" ", "T");
+}
+
+function dateKey(date) {
+  return istanbulMinute(date).slice(0, 10);
 }
 
 function getWeekStart(today) {
-  const start = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate()
-  );
-
-  const day = (start.getDay() + 6) % 7;
-
-  start.setDate(start.getDate() - day);
-  start.setHours(0, 0, 0, 0);
-
-  return start;
+  // Türkiye uses UTC+03:00 year-round for the application's reporting period.
+  const localDay = new Date(dateKey(today) + "T00:00:00Z");
+  const daysSinceMonday = (localDay.getUTCDay() + 6) % 7;
+  localDay.setUTCDate(localDay.getUTCDate() - daysSinceMonday);
+  return new Date(localDay.toISOString().slice(0, 10) + "T00:00:00+03:00");
 }
 
 function getWeeklyTrips(start, now) {
@@ -165,6 +170,8 @@ const weekElement = document.getElementById("weeklyEmission");
 const totalTripsElement = document.getElementById("totalTrips");
 
 const tripList = document.getElementById("tripList");
+const recentTrips = document.getElementById("recentTrips");
+const tripEstimate = document.getElementById("tripEstimate");
 
 const recommendationText =
   document.getElementById("recommendationText");
@@ -298,28 +305,24 @@ tripForm.addEventListener("submit", function(event) {
     switchCheckbox.checked;
 
   const trip = {
-    id: typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : Array.from(crypto.getRandomValues(new Uint8Array(16)), byte =>
-          byte.toString(16).padStart(2, "0")
-        ).join(""),
+    id: createTripId(),
     transport: transport,
     distance: distance,
     emission: emission,
     replacedCar: replacedCar,
+    emissionModel: emissionModelFor(transport),
     createdAt: new Date().toISOString()
   };
 
-  if (!saveTrips([...trips, trip])) {
+  if (!saveTrip(trip)) {
     showFeedback(messageElement, "Yolculuk tarayıcıya kaydedilemedi. Bilgilerin formda duruyor, tekrar deneyebilirsin.", true);
     return;
   }
 
   showFeedback(messageElement, "Yolculuğun başarıyla kaydedildi.");
   showFeedback(historyMessage, "");
-  resetComparison();
-
   tripForm.reset();
+  updateTripEstimate();
   updateSwitchVisibility();
 
   refreshApp();
@@ -331,6 +334,7 @@ tripForm.addEventListener("submit", function(event) {
 
 function renderTrips() {
   tripList.replaceChildren();
+  recentTrips.replaceChildren();
 
   if (trips.length === 0) {
     const empty = document.createElement("p");
@@ -339,24 +343,29 @@ function renderTrips() {
       "Henüz kaydedilmiş yolculuk bulunmuyor.";
 
     tripList.appendChild(empty);
+    recentTrips.appendChild(empty.cloneNode(true));
     return;
   }
 
   const sortedTrips = [...trips].reverse();
 
-  sortedTrips.forEach(trip => {
+  sortedTrips.forEach((trip, index) => {
     const row = document.createElement("div");
     row.className = "trip";
 
     const details = document.createElement("span");
 
     const date = new Date(trip.createdAt)
-      .toLocaleDateString("tr-TR");
+      .toLocaleDateString("tr-TR", { timeZone: istanbulZone });
 
     details.textContent =
       `${transportNames[trip.transport]} · ` +
       `${trip.distance} km · ${date}` +
-      (trip.replacedCar ? " · Otomobil yerine" : "");
+      (trip.replacedCar ? " · Otomobil yerine" : "") +
+      (trip.route?.dataStatus && trip.route.dataStatus !== "Canlı ORS" ? ` · ${trip.route.dataStatus}` : "") +
+      (trip.route?.start?.label && trip.route?.end?.label
+        ? ` · ${trip.route.start.label} → ${trip.route.end.label}`
+        : "");
 
     const rightSide = document.createElement("div");
     rightSide.className = "trip-actions";
@@ -378,14 +387,12 @@ function renderTrips() {
     );
 
     deleteButton.addEventListener("click", () => {
-      const remainingTrips = trips.filter(item => item.id !== trip.id);
-      if (!saveTrips(remainingTrips)) {
+      if (!updateTripStorage(records => records.filter(item => item?.id !== trip.id))) {
         showFeedback(historyMessage, "Yolculuk tarayıcıdan silinemedi. Kayıt geçmişinde duruyor.", true);
         return;
       }
 
       showFeedback(historyMessage, "Yolculuk silindi.");
-      resetComparison();
       refreshApp();
     });
 
@@ -393,6 +400,11 @@ function renderTrips() {
     row.append(details, rightSide);
 
     tripList.appendChild(row);
+    if (index < 3) {
+      const recent = row.cloneNode(true);
+      recent.querySelector(".delete-button").remove();
+      recentTrips.appendChild(recent);
+    }
   });
 }
 
@@ -416,7 +428,8 @@ function updateRecommendation() {
   const activeDistanceLimits = { walk: 2, bike: 8 };
   const alternatives = Object.keys(factors)
     .filter(mode =>
-      factors[mode] < factors[lastTrip.transport] &&
+      mode !== lastTrip.transport &&
+      calculateEmission(mode, lastTrip.distance) < lastTrip.emission &&
       lastTrip.distance <= (activeDistanceLimits[mode] ?? Infinity)
     )
     .sort((a, b) => factors[b] - factors[a]);
@@ -483,7 +496,37 @@ saveGoalButton.addEventListener("click", () => {
   refreshApp();
 });
 
-function updateWeeklyGoal(weeklyTrips) {
+function weeklyDeclaredReduction(weeklyTrips) {
+  const claims = typeof regularRoutes === "undefined" ? new Map() : regularRoutes.getClaims(weeklyTrips);
+  return [...new Map(weeklyTrips.map(trip => [trip.id, trip])).values()].reduce((total, trip) => {
+    if (trip.replacedCar === true && trip.transport !== "car") {
+      const declared = trip.route?.declaredReduction;
+      if (Number.isFinite(declared)) return total + Math.max(0, declared);
+      // Legacy manual entries declared a solo-car substitution over the same distance.
+      if (!trip.route && trip.transport !== "ring") return total + Math.max(0, trip.distance * factors.car - trip.emission);
+    }
+    const claim = claims.get(trip.id);
+    const comparable = claim && Object.hasOwn(transportNames, claim.referenceMode) &&
+      Number.isFinite(claim.referenceEmission) && claim.referenceEmission >= 0 && Number.isFinite(claim.reduction);
+    return total + (comparable ? Math.max(0, Math.min(claim.reduction, claim.referenceEmission - trip.emission)) : 0);
+  }, 0);
+}
+
+function updateReductionTotals(weeklyTrips) {
+  const reduction = weeklyDeclaredReduction(weeklyTrips);
+  document.getElementById("weeklyReduction").textContent = formatEmission(reduction) + " kg CO₂e";
+  document.getElementById("weeklyReductionInfo").textContent = reduction > 0
+    ? "Bu hafta · Kullanıcı beyanına ve varsayımlara dayalı"
+    : "Kullanıcı beyanına ve varsayımlara dayalı · Bu hafta pozitif azaltım yok";
+  updateWeeklyGoal(weeklyTrips, reduction);
+}
+
+document.addEventListener("regularchanged", () => {
+  const now = new Date();
+  updateReductionTotals(getWeeklyTrips(getWeekStart(now), now));
+});
+
+function updateWeeklyGoal(weeklyTrips, estimatedSaving) {
   if (weeklyGoal === null) {
     goalStatus.textContent =
       "Henüz haftalık hedef belirlemedin.";
@@ -504,22 +547,10 @@ function updateWeeklyGoal(weeklyTrips) {
 
   goalProgress.value = percent;
 
-  const estimatedSaving = switchedTrips.reduce(
-    (total, trip) => {
-      const oldEmission = trip.distance * factors.car;
-      return total + Math.max(
-        0,
-        oldEmission - trip.emission
-      );
-    },
-    0
-  );
-
   goalStatus.textContent =
     `${completed}/${weeklyGoal} ulaşım değişikliği · ` +
     `%${Math.round(percent)} tamamlandı. ` +
-    `Otomobil yerine yapıldığını belirttiğin yolculukların tahmini ` +
-    `azaltımı: ${formatEmission(estimatedSaving)} kg CO₂e.`;
+    `Bu haftanın kullanıcı beyanına dayalı tahmini azaltımı: ${formatEmission(estimatedSaving)} kg CO₂e.`;
 
   if (completed >= weeklyGoal) {
     goalStatus.textContent +=
@@ -532,19 +563,26 @@ function updateWeeklyGoal(weeklyTrips) {
 // ==========================================
 
 function resetComparison() {
-  comparisonResult.textContent = "Karşılaştırma sonucu burada gösterilecek.";
+  comparisonResult.textContent = "";
 }
 
+function updateTripEstimate() {
+  const hasDistance = distanceInput.validity.valid;
+  tripEstimate.textContent = hasDistance
+    ? `${formatEmission(calculateEmission(transportInput.value, distanceInput.valueAsNumber))} kg CO₂e`
+    : distanceInput.value ? "Geçerli bir mesafe gir" : "Mesafe gir";
+  resetComparison();
+}
+
+distanceInput.addEventListener("input", updateTripEstimate);
+transportInput.addEventListener("change", updateTripEstimate);
+compareTransport.addEventListener("change", resetComparison);
+
 compareButton.addEventListener("click", () => {
-  if (trips.length === 0) {
-    comparisonResult.textContent =
-      "Karşılaştırma yapmak için önce bir yolculuk ekle.";
+  if (!distanceInput.reportValidity()) return;
 
-    return;
-  }
-
-  const lastTrip = trips[trips.length - 1];
-
+  const transport = transportInput.value;
+  const distance = distanceInput.valueAsNumber;
   const alternative = compareTransport.value;
 
   if (!Object.hasOwn(factors, alternative)) {
@@ -553,13 +591,8 @@ compareButton.addEventListener("click", () => {
     return;
   }
 
-  const oldEmission = lastTrip.emission;
-
-  const newEmission = calculateEmission(
-    alternative,
-    lastTrip.distance
-  );
-
+  const oldEmission = calculateEmission(transport, distance);
+  const newEmission = calculateEmission(alternative, distance);
   const difference = oldEmission - newEmission;
 
   comparisonResult.replaceChildren();
@@ -567,12 +600,12 @@ compareButton.addEventListener("click", () => {
   const title = document.createElement("strong");
 
   title.textContent =
-    `Son yolculuğunun alternatif senaryosu · ${lastTrip.distance.toLocaleString("tr-TR")} km`;
+    `Aynı mesafede karşılaştırma · ${distance.toLocaleString("tr-TR")} km`;
 
   const before = document.createElement("p");
 
   before.textContent =
-    `Mevcut: ${transportNames[lastTrip.transport]} ` +
+    `Kullanılan: ${transportNames[transport]} ` +
     `— ${formatEmission(oldEmission)} kg CO₂e`;
 
   const after = document.createElement("p");
@@ -600,8 +633,7 @@ compareButton.addEventListener("click", () => {
   const note = document.createElement("small");
 
   note.textContent =
-    "Aynı mesafe varsayılmıştır. Bu karşılaştırma " +
-    "gerçekleşmiş bir ulaşım değişikliği değildir.";
+    "Sonuç, aynı mesafe için bir tahmindir. Yolculuk kaydı yalnızca kullandığın aracı içerir.";
 
   comparisonResult.append(
     title,
@@ -619,7 +651,7 @@ compareButton.addEventListener("click", () => {
 function updateWeeklyChart(weekStart, weeklyTrips) {
   const days = Array.from({ length: 7 }, (_, index) => {
     const date = new Date(weekStart);
-    date.setDate(date.getDate() + index);
+    date.setUTCDate(date.getUTCDate() + index);
     return { date, emission: 0 };
   });
   const daysByDate = new Map(days.map(day => [dateKey(day.date), day]));
@@ -642,12 +674,12 @@ function updateWeeklyChart(weekStart, weeklyTrips) {
 
     const bar = document.createElement("div");
     bar.className = "chart-bar";
-    bar.style.height = `${maxEmission > 0 ? 150 * (emission / maxEmission) : 0}px`;
+    bar.style.height = `${maxEmission > 0 ? 105 * (emission / maxEmission) : 0}px`;
 
     const label = document.createElement("span");
     label.className = "chart-day";
-    label.textContent = date.toLocaleDateString("tr-TR", { weekday: "short" });
-    accessibleValues.push(`${date.toLocaleDateString("tr-TR", { weekday: "long" })} ${value.textContent} kg CO₂e`);
+    label.textContent = date.toLocaleDateString("tr-TR", { weekday: "short", timeZone: istanbulZone });
+    accessibleValues.push(`${date.toLocaleDateString("tr-TR", { weekday: "long", timeZone: istanbulZone })} ${value.textContent} kg CO₂e`);
 
     column.append(value, bar, label);
     weeklyChart.appendChild(column);
@@ -670,7 +702,8 @@ function refreshApp() {
   updateWeeklyChart(weekStart, weeklyTrips);
   renderTrips();
   updateRecommendation();
-  updateWeeklyGoal(weeklyTrips);
+  updateReductionTotals(weeklyTrips);
+  document.dispatchEvent(new Event("tripsupdated"));
 }
 
 function refreshOnDayChange() {
@@ -685,7 +718,42 @@ if (weeklyGoal !== null) {
 
 updateSwitchVisibility();
 refreshApp();
-setInterval(refreshOnDayChange, 1000);
+setInterval(refreshOnDayChange, 60_000);
 document.addEventListener("visibilitychange", refreshOnDayChange);
+window.addEventListener("storage", event => {
+  if (event.key === TRIPS_KEY) {
+    trips = loadTrips();
+    refreshApp();
+  }
+});
 
-console.log("İSÜ Karbon uygulaması başlatıldı.");
+const views = [...document.querySelectorAll("[data-view]")];
+const navLinks = document.querySelectorAll(".header nav a");
+
+function showView(focusHeading = false) {
+  const requested = window.location.hash;
+  const active = views.find(view => requested === "#" + view.id)
+    ?? views.find(view => view.id === (requested === "#karsilastirma" ? "yolculuk" : ["#duzenli-rotalar", "#kampus-ringleri"].includes(requested) ? "akilli-rota" : "panel"));
+  for (const view of views) view.hidden = view !== active;
+  for (const link of navLinks) {
+    if (link.hash === "#" + active.id) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+  if (active.id === "akilli-rota") active.dispatchEvent(new Event("routeviewshown"));
+  if (focusHeading) {
+    if (["#duzenli-rotalar", "#kampus-ringleri"].includes(requested)) {
+      const heading = document.getElementById(requested === "#kampus-ringleri" ? "campusRingHeading" : "regularHeading");
+      heading.focus({ preventScroll: true });
+      heading.scrollIntoView();
+    } else if (requested === "#hedefler") {
+      weeklyGoalInput.focus({ preventScroll: true });
+      document.getElementById("hedefler").scrollIntoView();
+    } else {
+      window.scrollTo(0, 0);
+      active.querySelector("h1").focus({ preventScroll: true });
+    }
+  }
+}
+
+showView(["#duzenli-rotalar", "#kampus-ringleri"].includes(window.location.hash));
+window.addEventListener("hashchange", () => showView(true));

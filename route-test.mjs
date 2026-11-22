@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
+import { get } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import vm from "node:vm";
 
@@ -109,8 +110,8 @@ const upstream = async (url, options) => {
 };
 
 const children = [];
-async function startServer(withKey) {
-  const env = { ...process.env, PORT: "0", ORS_API_KEY: withKey ? "test-key" : "" };
+async function startServer(withKey, render = false) {
+  const env = { ...process.env, PORT: "0", RENDER: String(render), ORS_API_KEY: withKey ? "test-key" : "" };
   const mock = "data:text/javascript," + encodeURIComponent(
     'import assert from "node:assert/strict"; globalThis.fetch = ' + upstream.toString() + ";"
   );
@@ -120,7 +121,9 @@ async function startServer(withKey) {
     once(child.stdout, "data"),
     once(child, "exit").then(([code]) => { throw Error("Server exited: " + code); })
   ]);
-  return output.toString().match(/http:\/\/127\.0\.0\.1:\d+/)[0];
+  const address = output.toString().match(/http:\/\/(?:127\.0\.0\.1|0\.0\.0\.0):\d+/)[0];
+  assert.equal(new URL(address).hostname, render ? "0.0.0.0" : "127.0.0.1");
+  return address.replace("0.0.0.0", "127.0.0.1");
 }
 
 const carPath = (start, end = pilot.end.coordinates, mode = "car") =>
@@ -382,11 +385,12 @@ async function testBrowser(base, missing, executable, demoUrl) {
       assert.match(await evaluate('document.querySelector("#campusRingPilotNote").textContent'), /20 öğrenci/);
       assert.equal(await evaluate('document.querySelectorAll("#campusRingForm :is([name=vehicle],[name=fuel],[name=km],[name=capacity],[name=factor],[name=source],[name=compatible],[name=passengers]), #ringKm, #ringPassengers, #ringVehicle").length'), 0);
       assert.equal(await evaluate('document.querySelector("#campusRingGroupAssumption").hidden'), true);
+      assert.deepEqual(await evaluate('[...document.querySelectorAll("#campusRingForm [name=carPassengers] option")].map(item => item.value)'), ["1", "2", "3", "4"]);
       await ringInput("carPassengers", 2);
       async function compareRing(start, end) {
         const before = routeRequests.length;
         await evaluate('document.querySelector("#campusRingCompare").click()');
-        await waitFor('document.querySelector("#campusRingComparison").textContent.includes("Canlı ORS")');
+        await waitFor('document.querySelector("#campusRingCar").textContent.includes("Canlı ORS")');
         const [item] = routeRequests.slice(before);
         assert.equal(item.start, start.coordinates.join());
         assert.equal(item.end, end.coordinates.join());
@@ -399,7 +403,9 @@ async function testBrowser(base, missing, executable, demoUrl) {
       await ringInput("groupReference", true);
       const groupExpected = await evaluate(`formatEmission(${(forward.km * 0.17 / 2 - 1) * 20})`);
       assert.equal(await evaluate('document.querySelector("#campusRingGroup").textContent'), "Potansiyel azaltım " + groupExpected + " kg CO₂e.");
-      await ringInput("carPassengers", 5);
+      await ringInput("carPassengers", 4);
+      assert.equal(await evaluate('document.querySelector("#campusRingPersonal").textContent'), "1,00 kg CO₂e / kişi");
+      assert.equal(await evaluate('document.querySelector("#campusRingTotal").textContent'), "20,00 kg CO₂e / sefer");
       assert.match(await evaluate('document.querySelector("#campusRingComparison").textContent'), /Tahmini emisyon artışı/);
       assert.doesNotMatch(await evaluate('document.querySelector("#campusRingGroup").textContent'), /kg CO₂e/);
       await ringInput("groupReference", true);
@@ -410,7 +416,7 @@ async function testBrowser(base, missing, executable, demoUrl) {
       assert.equal(await evaluate('document.querySelector("#campusRingPlan").disabled'), true);
       await ringInput("carPassengers", 2);
       await evaluate('window.ringOriginalFetch = window.fetch; window.fetch = () => Promise.reject(new TypeError("Controlled offline error")); document.querySelector("#campusRingCompare").click()');
-      await waitFor('document.querySelector("#campusRingComparison").textContent.includes("sunucusundan geçerli")');
+      await waitFor('document.querySelector("#campusRingCar").textContent.includes("sunucusundan geçerli")');
       await evaluate('window.fetch = window.ringOriginalFetch; delete window.ringOriginalFetch');
       assert.equal(await evaluate('document.querySelector("#campusRingPersonal").textContent'), "1,00 kg CO₂e / kişi");
       assert.equal(await evaluate('document.querySelector("#campusRingSave").disabled'), false);
@@ -729,7 +735,7 @@ async function testBrowser(base, missing, executable, demoUrl) {
     await waitFor('location.origin === ' + JSON.stringify(missing) + ' && document.querySelector("#routePreset")?.options.length === 10');
     await choosePreset("rail");
     await calculatePreset("rail");
-    await waitFor('document.querySelector("#routeStatus").textContent.includes("ORS_API_KEY")');
+    await waitFor('document.querySelector("#routeStatus").textContent.includes("henüz yapılandırılmadı")');
     assert.match(await evaluate('document.querySelector("#railMetrics").textContent'), /15,08 km/);
     assert.equal(await evaluate('document.querySelector("#saveSelectedRoute").disabled'), true);
     assert.equal(await evaluate('document.querySelector("#routeImpact").hidden'), true);
@@ -754,7 +760,7 @@ async function testBrowser(base, missing, executable, demoUrl) {
     console.log("PASS: pre-pilot-version ring records retain their original distance and emissions");
     await evaluate('localStorage.setItem("isuKarbonRegularRoutesV1", "broken-json")');
     await send("Page.navigate", { url: missing + "/?brokenRegular=1#akilli-rota" });
-    await waitFor('location.search === "?brokenRegular=1" && document.querySelector("#regularList").textContent.includes("açılamadı")');
+    await waitFor('location.search === "?brokenRegular=1" && document.querySelector("#regularList")?.textContent.includes("açılamadı")');
     assert.equal(await evaluate('localStorage.getItem("isuKarbonRegularRoutesV1")'), "broken-json");
     assert.equal(await evaluate('document.querySelector("#totalTrips").textContent'), "2");
     console.log("PASS: corrupt regular storage does not crash or rewrite stored data");
@@ -833,6 +839,26 @@ try {
   const missing = await startServer(false);
   assert.equal((await fetch(missing + carPath(pilot.start.coordinates))).status, 503);
   assert.equal((await fetch(missing + "/.env")).status, 404);
+  const production = (await startServer(true, true)).replace("127.0.0.1", "localhost");
+  const publicHost = "isu-release.example";
+  const productionRoute = production + carPath(pilot.start.coordinates);
+  const requestOrigin = origin => new Promise((resolve, reject) => {
+    get(productionRoute, { headers: { Host: publicHost, Origin: origin } }, response => {
+      response.resume();
+      resolve(response);
+    }).on("error", reject);
+  });
+  assert.deepEqual(await fetch(production + "/healthz").then(response => response.json()), { status: "ok" });
+  const sameOrigin = await requestOrigin("https://" + publicHost);
+  assert.equal(sameOrigin.statusCode, 200);
+  assert.equal(sameOrigin.headers["access-control-allow-origin"], undefined);
+  for (const Origin of ["https://another.example", "http://" + publicHost, "null"]) {
+    assert.equal((await requestOrigin(Origin)).statusCode, 403);
+  }
+  for (const path of ["/.env", "/.env.example", "/.git/config", "/server.mjs"]) {
+    assert.equal((await fetch(production + path)).status, 404);
+  }
+  console.log("PASS: Render binding, health check, host-independent routes, origin restrictions and private files");
   const regularScript = await fetch(missing + "/regular-routes.js");
   assert.equal(regularScript.status, 200);
   assert.equal(regularScript.headers.get("cache-control"), "no-cache");

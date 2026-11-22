@@ -728,13 +728,20 @@ window.addEventListener("storage", event => {
 });
 
 const views = [...document.querySelectorAll("[data-view]")];
-const navLinks = document.querySelectorAll(".header nav a");
+const navLinks = document.querySelectorAll("#carbonNav a");
 
 function showView(focusHeading = false) {
   const requested = window.location.hash;
   const active = views.find(view => requested === "#" + view.id)
     ?? views.find(view => view.id === (requested === "#karsilastirma" ? "yolculuk" : ["#duzenli-rotalar", "#kampus-ringleri"].includes(requested) ? "akilli-rota" : "panel"));
   for (const view of views) view.hidden = view !== active;
+  const isLogistics = active.id === "lojistik";
+  document.getElementById("carbonNav").hidden = isLogistics;
+  const activeModule = document.getElementById(isLogistics ? "moduleLogistics" : "moduleCarbon");
+  const otherModule = document.getElementById(isLogistics ? "moduleCarbon" : "moduleLogistics");
+  activeModule.setAttribute("aria-current", "page");
+  otherModule.removeAttribute("aria-current");
+  if (isLogistics) active.dispatchEvent(new Event("logisticsviewshown"));
   for (const link of navLinks) {
     if (link.hash === "#" + active.id) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");

@@ -1,11 +1,17 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
+import { inLogisticsArea, validHgvRoute } from "./logistics-emissions.js";
 
 const apiKey = process.env.ORS_API_KEY?.trim();
+const host = process.env.RENDER === "true" ? "0.0.0.0" : "127.0.0.1";
 const base = "https://api.heigit.org";
 const assets = new Map([
   ["/", ["index.html", "text/html"]],
   ["/index.html", ["index.html", "text/html"]],
+  ["/logistics.js", ["logistics.js", "text/javascript"]],
+  ["/logistics-config.js", ["logistics-config.js", "text/javascript"]],
+  ["/logistics-emissions.js", ["logistics-emissions.js", "text/javascript"]],
+  ["/logistics.css", ["logistics.css", "text/css"]],
   ["/style.css", ["style.css", "text/css"]],
   ["/app.js", ["app.js", "text/javascript"]],
   ["/route-config.js", ["route-config.js", "text/javascript"]],
@@ -30,16 +36,27 @@ function inIstanbul([lon, lat]) {
     lon >= 27.95 && lon <= 30.0 && lat >= 40.78 && lat <= 41.62;
 }
 
-function point(value) {
+function point(value, inArea = inIstanbul) {
   if (!/^-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?$/.test(value ?? "")) return null;
   const coordinates = value.split(",").map(Number);
-  return inIstanbul(coordinates) ? coordinates : null;
+  return inArea(coordinates) ? coordinates : null;
+}
+
+function permitsRouteRequest(request) {
+  if (["cross-site", "same-site"].includes(request.headers["sec-fetch-site"])) return false;
+  const origin = request.headers.origin;
+  if (!origin) return true;
+  const parsed = URL.parse(origin);
+  const protocol = process.env.RENDER === "true" ? "https:" : "http:";
+  return parsed?.protocol === protocol && parsed.origin === origin &&
+    parsed.host === request.headers.host?.toLowerCase();
 }
 
 const server = createServer(async (request, response) => {
   try {
-    const url = new URL(request.url, "http://localhost");
+    const url = new URL(request.url, "http://app.invalid");
     if (request.method !== "GET") return json(response, 405, { error: "Geçersiz istek yöntemi." });
+    if (url.pathname === "/healthz") return json(response, 200, { status: "ok" });
     const asset = assets.get(url.pathname);
     if (asset) {
       const data = await readFile(new URL(asset[0], import.meta.url));
@@ -48,11 +65,11 @@ const server = createServer(async (request, response) => {
     }
 
     const search = url.pathname === "/api/route/search";
-    const profile = profiles.get(url.pathname);
+    const logistics = url.pathname === "/api/logistics/route";
+    const profile = logistics ? "driving-hgv" : profiles.get(url.pathname);
     if (!search && !profile) return json(response, 404, { error: "Sayfa bulunamadı." });
-    if (!/^(?:127\.0\.0\.1|localhost)(?::\d+)?$/.test(request.headers.host ?? "") ||
-        ["cross-site", "same-site"].includes(request.headers["sec-fetch-site"])) {
-      return json(response, 403, { error: "Rota servisi yerel uygulamadan kullanılabilir." });
+    if (!permitsRouteRequest(request)) {
+      return json(response, 403, { error: "Rota servisini uygulamanın kendi adresinden kullan." });
     }
     let upstream;
     let options;
@@ -67,14 +84,38 @@ const server = createServer(async (request, response) => {
       });
       options = { headers: { Authorization: apiKey ?? "" } };
     } else {
-      const start = point(url.searchParams.get("start"));
-      const end = point(url.searchParams.get("end"));
+      const area = logistics ? inLogisticsArea : inIstanbul;
+      const start = point(url.searchParams.get("start"), area);
+      const end = point(url.searchParams.get("end"), area);
       if (!start || !end || start.join() === end.join()) {
-        return json(response, 400, { error: "İstanbul’da birbirinden farklı iki geçerli nokta seç." });
+        return json(response, 400, { error: logistics ? "Türkiye çevresindeki harita alanında iki farklı nokta seç." : "İstanbul’da birbirinden farklı iki geçerli nokta seç." });
       }
       upstream = new URL(`/openrouteservice/v2/directions/${profile}/geojson`, base);
       const body = { coordinates: [start, end] };
-      if (profile !== "driving-car") body.options = { avoid_features: ["ferries"] };
+      if (logistics) {
+        const restrictions = {};
+        for (const [name, max] of Object.entries({ weight: 100, height: 10, width: 10, length: 40 })) {
+          if (!url.searchParams.has(name)) continue;
+          const raw = url.searchParams.get(name);
+          const value = Number(raw);
+          if (!/^\d+(?:\.\d+)?$/.test(raw) || !Number.isFinite(value) || value <= 0 || value > max ||
+              url.searchParams.getAll(name).length !== 1) {
+            return json(response, 400, { error: "Geçersiz ağır vasıta kısıtı." });
+          }
+          restrictions[name] = value;
+        }
+        body.options = { avoid_features: ["ferries"] };
+        if (Object.keys(restrictions).length) {
+          body.options.vehicle_type = "hgv";
+          body.options.profile_params = { restrictions };
+        }
+        if (url.searchParams.get("alternatives") === "1") {
+          const km = 111.2 * Math.hypot(end[1] - start[1], (end[0] - start[0]) *
+            Math.cos((start[1] + end[1]) * Math.PI / 360));
+          if (km > 100) return json(response, 400, { error: "ORS alternatif yol sınırı 100 km. Alternatif isteğini kapatıp yeniden dene." });
+          body.alternative_routes = { target_count: 2 };
+        }
+      } else if (profile !== "driving-car") body.options = { avoid_features: ["ferries"] };
       options = {
         method: "POST",
         headers: { Authorization: apiKey ?? "", "Content-Type": "application/json" },
@@ -82,7 +123,7 @@ const server = createServer(async (request, response) => {
       };
     }
 
-    if (!apiKey) return json(response, 503, { error: "Rota servisi için sunucuda ORS_API_KEY eksik." });
+    if (!apiKey) return json(response, 503, { error: "Rota servisi sunucuda henüz yapılandırılmadı." });
     const cacheKey = search ? "search:" + url.searchParams.get("q").trim().toLocaleLowerCase("tr") : profile + ":" + options.body;
     const now = Date.now();
     const cached = cache.get(cacheKey);
@@ -118,6 +159,16 @@ const server = createServer(async (request, response) => {
         inIstanbul(item.geometry.coordinates) &&
         /istanbul/i.test(String(item.properties.region ?? item.properties.label).normalize("NFD").replace(/\p{M}/gu, ""))
       ).map(item => ({ label: item.properties.label, coordinates: item.geometry.coordinates.slice(0, 2) }));
+    } else if (logistics) {
+      const routes = (Array.isArray(payload?.features) ? payload.features : []).filter(feature => feature?.geometry?.type === "LineString" &&
+        Number.isFinite(feature.properties?.summary?.distance) && Number.isFinite(feature.properties?.summary?.duration))
+        .map(feature => ({
+          profile, km: feature.properties?.summary?.distance / 1000,
+          minutes: feature.properties?.summary?.duration / 60,
+          coordinates: feature.geometry.coordinates
+        })).filter(validHgvRoute);
+      if (!routes.length) return json(response, 404, { error: "Geçerli ağır vasıta rota geometrisi alınamadı." });
+      data = { routes, profile, source: "openrouteservice", fetchedAt: new Date().toISOString() };
     } else {
       const feature = payload.features?.[0];
       const summary = feature?.properties?.summary;
@@ -152,6 +203,6 @@ server.on("error", error => {
   process.exitCode = 1;
 });
 
-server.listen(Number(process.env.PORT ?? 4173), "127.0.0.1", () => {
-  console.log(`İSÜ Karbon http://127.0.0.1:${server.address().port}`);
+server.listen(Number(process.env.PORT ?? 4173), host, () => {
+  console.log(`İSÜ Karbon http://${host}:${server.address().port}`);
 });

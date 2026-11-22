@@ -11,6 +11,7 @@
         content="İstinye Üniversitesi öğrencileri için karbon ayak izi takip platformu.">
 
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="logistics.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script>
   <script src="route-config.js" defer></script>
@@ -18,6 +19,7 @@
   <script src="regular-routes.js" defer></script>
   <script src="route.js" defer></script>
   <script src="campus-rings.js" defer></script>
+  <script src="logistics.js" type="module"></script>
 </head>
 
 <body>
@@ -27,7 +29,8 @@
     <div class="container header-content">
       <a href="#panel" class="logo">🌿 İSÜ Karbon</a>
 
-      <nav aria-label="Ana menü">
+      <nav class="module-nav" aria-label="Uygulamalar"><a id="moduleCarbon" href="#panel" aria-current="page">İSÜ Karbon</a><a id="moduleLogistics" href="#lojistik">İSÜ Lojistik</a></nav>
+      <nav id="carbonNav" aria-label="İSÜ Karbon menüsü">
         <a href="#panel" aria-current="page">Panelim</a>
         <a href="#yolculuk">Yolculuklarım</a>
         <a href="#akilli-rota">Akıllı Rota</a>
@@ -315,17 +318,29 @@
                 <option value="vadi">İSÜ Vadi Kampüsü → İSÜ Topkapı Kampüsü</option>
               </select>
             </label>
-            <label>Otomobildeki kişi sayısı<input name="carPassengers" type="number" min="1" max="50" step="1" value="1" required></label>
           </div>
           <p id="campusRingPilotNote"></p>
+          <fieldset class="route-method">
+            <legend>Otomobil karşılaştırma senaryosu</legend>
+            <label>Ring yerine özel otomobille gitseydin araçta seninle birlikte toplam kaç kişi olacaktı?
+              <select name="carPassengers" aria-describedby="campusRingReferenceNote" required>
+                <option value="1">1 kişi</option>
+                <option value="2">2 kişi</option>
+                <option value="3">3 kişi</option>
+                <option value="4">4 kişi</option>
+              </select>
+            </label>
+            <p id="campusRingReferenceNote">Bu seçim yalnızca varsayımsal otomobil hesabını değiştirir. Geçmişe kaydedilen yolculuk ring yolculuğudur.</p>
+          </fieldset>
           <div class="route-actions">
             <button type="button" class="route-secondary" id="campusRingCompare">Otomobille karşılaştır</button>
             <button type="button" class="route-secondary" id="campusRingMap">Kampüsleri haritada göster</button>
           </div>
           <div class="route-grid campus-ring-cards">
-            <article><h3>Benim ring emisyonum</h3><p id="campusRingPersonal"></p></article>
-            <article><h3>Ringin toplam emisyonu</h3><p id="campusRingTotal"></p></article>
-            <article><h3>Kişisel potansiyel azaltımım</h3><p id="campusRingComparison" role="status"></p></article>
+            <article><h3>Özel otomobilin kişi başına tahmini emisyonu</h3><p id="campusRingCar" role="status"></p></article>
+            <article><h3>Ringin kişi başına tahmini emisyonu</h3><p id="campusRingPersonal"></p></article>
+            <article><h3>Kişisel potansiyel azaltım veya emisyon artışı</h3><p id="campusRingComparison" role="status"></p></article>
+            <article><h3>20 kişinin toplam ring emisyonu</h3><p id="campusRingTotal"></p></article>
             <article>
               <h3 id="campusRingGroupHeading">20 kişi için varsayımsal karşılaştırma</h3>
               <label id="campusRingGroupAssumption" class="route-confirm" hidden><input name="groupReference" type="checkbox"> Aynı yön, ORS mesafesi ve otomobildeki kişi sayısı varsayımını tüm ring yolcularına uygula.</label>
@@ -354,6 +369,168 @@
         <p>Haftalık hedef pazartesi yenilenir. Azaltım hesabına, önceki tercihin yerine alternatifle yaptığını belirttiğin karşılaştırılabilir yolculuklar girer.</p>
         <p id="regularStatus" role="status"></p>
         <div id="regularList"></div>
+      </section>
+    </section>
+
+    <section id="lojistik" data-view hidden>
+      <div class="welcome">
+        <h1 tabindex="-1">İSÜ Lojistik</h1>
+        <p>Yük taşımacılığının karbon ayak izini hesapla, alternatif sevkiyat seçeneklerini karşılaştır.</p>
+      </div>
+      <section class="card logistics-budget" aria-labelledby="logisticsBudgetTitle">
+        <h2 id="logisticsBudgetTitle">Şirket Karbon Bütçem</h2>
+        <p class="logistics-note">Gönüllü aylık iç hedef. Ay sınırı İstanbul saatine göre hesaplanır. Renkler arayüz uyarısıdır.</p>
+        <dl id="logisticsBudgetMetrics" class="logistics-metrics"></dl>
+        <div id="logisticsBudgetTrack" class="logistics-budget-track" hidden>
+          <progress id="logisticsBudgetProgress" aria-label="Aylık bütçe kullanımı" max="100" value="0"></progress>
+          <span id="logisticsBudgetPercent"></span>
+        </div>
+        <p id="logisticsBudgetProjection" class="logistics-note"></p>
+        <details id="logisticsBudgetEditor"><summary>Bütçeyi düzenle</summary>
+          <form id="logisticsBudgetForm" class="logistics-inline">
+            <label>Tutar<input id="logisticsBudgetInput" type="number" min="0.00001" step="any" required></label>
+            <label>Birim<select id="logisticsBudgetUnit"><option value="kg">kg CO₂e</option><option value="t">ton CO₂e</option></select></label>
+            <button type="submit">Kaydet</button>
+          </form>
+        </details>
+        <p id="logisticsBudgetStatus" role="status"></p>
+      </section>
+      <div class="logistics-grid">
+        <section class="card">
+          <h2>Yeni Sevkiyat</h2>
+          <ol class="logistics-steps" aria-label="Sevkiyat adımları">
+            <li aria-current="step">1. Güzergâh</li>
+            <li>2. Araç ve yük</li>
+            <li>3. Hesaplama ve sonuç</li>
+          </ol>
+          <form id="logisticsForm">
+            <fieldset data-logistics-step="1"><legend tabindex="-1">Güzergâh</legend>
+              <label>Hazır güzergâh<select id="logisticsPreset">
+                <option value="">Hazır güzergâh seç</option>
+                <option value="istanbul:ankara">İstanbul – Ankara</option>
+                <option value="istanbul:bursa">İstanbul – Bursa</option>
+                <option value="istanbul:kocaeli">İstanbul – İzmit</option>
+                <option value="bursa:ankara">Bursa – Ankara</option>
+                <option value="istanbul:sivas">İstanbul – Sivas</option>
+                <option value="istanbul:konya">İstanbul – Konya</option>
+                <option value="istanbul:kayseri">İstanbul – Kayseri</option>
+                <option value="istanbul:antalya">İstanbul – Antalya</option>
+                <option value="istanbul:eskisehir">İstanbul – Eskişehir</option>
+                <option value="istanbul:adana">İstanbul – Adana</option>
+              </select></label>
+              <div class="route-grid">
+                <label>Başlangıç<select name="start" required></select></label>
+                <label>Varış<select name="end" required></select></label>
+              </div>
+              <div class="route-actions">
+                <button id="logisticsPickStart" class="route-secondary" type="button">Başlangıcı haritadan seç</button>
+                <button id="logisticsPickEnd" class="route-secondary" type="button">Varışı haritadan seç</button>
+              </div>
+              <details><summary>Beyan edilen mesafe (isteğe bağlı)</summary>
+              <label class="route-confirm"><input name="manual" type="checkbox"> Bilinen mesafeyi beyan et</label>
+              <div id="logisticsManual" class="route-grid" hidden>
+                <label>Beyan edilen mesafe (km)<input name="manualKm" type="number" min="0.01" max="6000" step="any" required disabled></label>
+                <label>Tahmini süre (dk)<input name="manualMinutes" type="number" min="0" step="any" disabled></label>
+              </div>
+              </details>
+              <p class="logistics-note">Ağır vasıta rotaları feribotları hariç tutar.</p>
+            </fieldset>
+            <fieldset data-logistics-step="2" hidden><legend tabindex="-1">Araç ve yük</legend>
+              <div class="route-grid">
+                <label>Araç sınıfı<select name="vehicle"></select></label>
+                <label>Yük türü<select name="cargo"><option>Genel kargo</option><option>Gıda</option><option>Elektronik</option><option>Tekstil</option><option>Diğer</option></select></label>
+                <label>Yük ağırlığı (ton)<input name="load" type="number" min="0.001" step="any" required></label>
+                <label>Azami yük kapasitesi (ton)<input name="capacity" type="number" min="0.001" step="any" required></label>
+                <label>Sevkiyat durumu<select name="shipmentStatus"><option value="planned">Planlanan</option><option value="realized">Gerçekleşen</option></select></label>
+              </div>
+              <details><summary>Gelişmiş araç ayarları</summary>
+                <div class="route-grid">
+                  <label>Yüklü ağırlık (t)<input name="weight" type="number" min="0.01" max="100" step="any"></label>
+                  <label>Yükseklik (m)<input name="height" type="number" min="0.01" max="10" step="any"></label>
+                  <label>Genişlik (m)<input name="width" type="number" min="0.01" max="10" step="any"></label>
+                  <label>Uzunluk (m)<input name="length" type="number" min="0.01" max="40" step="any"></label>
+                </div>
+              </details>
+              <p class="logistics-note">Sınıflar azami araç kütlesine göredir. Taşıma kapasitesini araç belgesinden gir.</p>
+            <details><summary>Belgeli yakıt tüketimi (isteğe bağlı)</summary>
+              <div class="route-grid">
+                <label>Belgedeki yakıt<select name="fuel"><option value="">Seç</option><option value="diesel">Dizel</option><option value="petrol">Benzin</option></select></label>
+                <label>Tüketim (L/100 km)<input name="consumption" type="number" min="0.01" step="any"></label>
+                <label>Belge veya ölçüm kaydı referansı<input name="evidence" maxlength="120"></label>
+              </div>
+            </details>
+            </fieldset>
+            <fieldset data-logistics-step="3" hidden><legend tabindex="-1">Hesaplama ve sonuç</legend>
+              <p id="logisticsStepSummary"></p>
+              <button type="submit" id="logisticsCalculate">Sevkiyatı hesapla</button>
+            </fieldset>
+            <div class="logistics-step-actions">
+              <button type="button" class="route-secondary" id="logisticsBack" hidden>Geri</button>
+              <button type="button" id="logisticsNext">Devam et</button>
+            </div>
+            <p id="logisticsStatus" role="status"></p>
+          </form>
+        </section>
+        <section class="card">
+          <h2>Harita ve Güzergâh</h2>
+          <div id="logisticsMap" aria-label="Sevkiyat haritası"></div>
+          <p id="logisticsMapEmpty" class="logistics-note">Güzergâh oluşturmak için başlangıç ve varış seç.</p>
+          <p id="logisticsMapStatus" role="status"></p>
+          <p id="logisticsRouteStatus" role="status"></p>
+          <ul id="logisticsRoads"></ul>
+        </section>
+      </div>
+      <section class="card" id="logisticsAnalysis" hidden>
+        <h2>Sevkiyatın karbon etkisi</h2>
+        <dl class="logistics-metrics" id="logisticsMetrics"></dl>
+        <details class="route-method"><summary>Hesaplama detayları</summary>
+          <dl id="logisticsDetails" class="logistics-metrics"></dl>
+          <p id="logisticsMethod"></p>
+          <p>Sonuçlar tahmindir. Doğrudan işletim kapsamı yakıt tedarik zincirini, araç üretimini ve soğutma enerjisini içermez.</p>
+          <p><a href="https://www.gov.uk/government/publications/greenhouse-gas-reporting-conversion-factors-2026">DESNZ 2026 katsayıları</a> · <a href="https://smart-freight-centre-media.s3.amazonaws.com/documents/GLEC_FRAMEWORK_v3_23_10_24_B.pdf">GLEC yöntemi</a> · <a href="https://eur-lex.europa.eu/eli/reg/2018/858/oj/eng/pdf">Araç sınıfları · AB 2018/858</a></p>
+        </details>
+      </section>
+      <section class="card" id="logisticsScenarios" hidden>
+        <h2>Akıllı azaltım önerileri</h2>
+        <p id="logisticsBest" class="logistics-note"></p>
+        <p id="logisticsAdvice" class="logistics-note"></p>
+        <div id="logisticsRecommendations" class="logistics-grid"></div>
+        <details>
+          <summary>Belgeli alternatif araç varsa değerlendir</summary>
+          <form id="logisticsScenario">
+            <div class="route-grid">
+              <label>Araç sınıfı<select name="vehicle"></select></label>
+              <label>Belgedeki yük kapasitesi (ton)<input name="capacity" type="number" min="0.001" step="any" required></label>
+              <label>Yüklü ağırlık (t)<input name="weight" type="number" min="0.01" max="100" step="any" required></label>
+              <label>Yükseklik (m)<input name="height" type="number" min="0.01" max="10" step="any" required></label>
+              <label>Genişlik (m)<input name="width" type="number" min="0.01" max="10" step="any" required></label>
+              <label>Uzunluk (m)<input name="length" type="number" min="0.01" max="40" step="any" required></label>
+            </div>
+            <button type="submit" class="route-secondary">Kapasiteyi ve rotayı doğrula</button>
+            <p id="logisticsScenarioStatus" role="status"></p>
+          </form>
+        </details>
+        <details>
+          <summary>Belgeli alternatif tüketimi karşılaştır</summary>
+          <form id="logisticsEfficiency">
+            <div class="route-grid">
+              <label>Tüketim (L/100 km)<input name="consumption" type="number" min="0.01" step="any" required></label>
+              <label>Ölçüm veya belge kaynağı<input name="evidence" required maxlength="200"></label>
+            </div>
+            <button type="submit" class="route-secondary">Tüketimi karşılaştır</button>
+            <p id="logisticsEfficiencyStatus" role="status"></p>
+          </form>
+        </details>
+        <button type="button" id="logisticsSave">Sevkiyatı kaydet</button>
+        <p id="logisticsSaveStatus" role="status"></p>
+      </section>
+      <section class="card">
+        <h2>Sevkiyat Geçmişim</h2>
+        <dl id="logisticsReductionTotals" class="logistics-metrics"></dl>
+        <p id="logisticsTotal"></p>
+        <label>Duruma göre göster<select id="logisticsHistoryFilter"><option value="">Tümü</option><option value="planned">Planlanan</option><option value="realized">Gerçekleşen</option><option value="unknown">Durumu doğrulanmamış</option></select></label>
+        <ul id="logisticsHistory" class="logistics-history"></ul>
+        <p id="logisticsHistoryStatus" role="status"></p>
       </section>
     </section>
 

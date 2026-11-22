@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: isu-karbon
+    runtime: node
+    plan: free
+    branch: main
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: ORS_API_KEY
+        sync: false

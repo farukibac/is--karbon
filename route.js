@@ -66,10 +66,10 @@
     } catch (error) {
       if (error.name === "AbortError") throw error;
       if (error.name === "TimeoutError") throw new Error("Rota isteği zaman aşımına uğradı. Tekrar dene.");
-      throw new Error("Bağlantı kurulamadı. İnternet bağlantısını ve yerel rota sunucusunu kontrol et.");
+      throw new Error("Rota servisine bağlanılamadı. İnternet bağlantını kontrol edip tekrar dene.");
     }
     if (!response.headers.get("content-type")?.includes("application/json")) {
-      throw new Error("Yerel sunucu beklenen rota yanıtını vermedi. Sunucuyu node --env-file=.env server.mjs ile yeniden başlat.");
+      throw new Error("Rota servisi beklenen yanıtı vermedi. Bir süre sonra tekrar dene.");
     }
     const data = await response.json();
     if (response.status === 404 && data.error === "Sayfa bulunamadı." && path.startsWith("/api/route/")) {

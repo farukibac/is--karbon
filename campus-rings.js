@@ -23,7 +23,7 @@
 
   function carOption() {
     if (!road || !field("carPassengers").validity.valid) return null;
-    const passengers = field("carPassengers").valueAsNumber;
+    const passengers = Number(field("carPassengers").value);
     return { km: road.km, passengers, emission: compareRouteEmissions(road.km, null, passengers).car,
       source: "ORS yol ağı", dataStatus: "Canlı ORS" };
   }
@@ -47,10 +47,11 @@
         : "Tüm yolcular için aynı referansı açıkça seçtiğinde grup farkı gösterilir.";
     const metrics = difference !== null
       ? "Canlı ORS" + (road.cached ? " (en fazla 15 dk önbellek)" : "") + " · Otomobil " + car.km.toLocaleString("tr-TR", { maximumFractionDigits: 2 }) +
-        " km · " + kg(car.emission) + " / kişi. " + describeDifference(difference)
+        " km · " + kg(car.emission) + " / kişi."
       : "Hesaplanamadı. Geçerli otomobil referansı gerekli.";
-    showFeedback(comparison, request ? "ORS otomobil güzergâhı hesaplanıyor…" :
+    showFeedback(element("campusRingCar"), request ? "ORS otomobil güzergâhı hesaplanıyor…" :
       comparisonError ? "Hesaplanamadı. " + comparisonError : metrics, Boolean(comparisonError));
+    comparison.textContent = difference === null ? "Otomobil senaryosunu hesapladığında gösterilir." : describeDifference(difference);
   }
 
   function describeDifference(difference) {
@@ -77,7 +78,7 @@
       if (request === controller) road = data;
     } catch (error) {
       if (request === controller) comparisonError = error.name === "TimeoutError" ? "ORS otomobil isteği zaman aşımına uğradı."
-        : error instanceof TypeError || error instanceof SyntaxError ? "Yerel rota sunucusundan geçerli bir yanıt alınamadı." : error.message;
+        : error instanceof TypeError || error instanceof SyntaxError ? "Rota sunucusundan geçerli bir yanıt alınamadı." : error.message;
     } finally {
       if (request === controller) {
         request = null;

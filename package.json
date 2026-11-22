@@ -1,0 +1,14 @@
+{
+  "name": "isu-karbon",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --env-file=.env server.mjs",
+    "test": "node route-test.mjs && node logistics-test.mjs"
+  }
+}
